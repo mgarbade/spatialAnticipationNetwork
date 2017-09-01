@@ -3,19 +3,6 @@ import numpy as np
 import tensorflow as tf
 from tensorflow.python.ops import control_flow_ops
 
-# n_classes = 21
-# colour map
-#label_colours = [(0,0,0)
-#                # 0=background
-#                ,(128,0,0),(0,128,0),(128,128,0),(0,0,128),(128,0,128)
-#                # 1=aeroplane, 2=bicycle, 3=bird, 4=boat, 5=bottle
-#                ,(0,128,128),(128,128,128),(64,0,0),(192,0,0),(64,128,0)
-#                # 6=bus, 7=car, 8=cat, 9=chair, 10=cow
-#                ,(192,128,0),(64,0,128),(192,0,128),(64,128,128),(192,128,128)
-#                # 11=diningtable, 12=dog, 13=horse, 14=motorbike, 15=person
-#                ,(0,64,0),(128,64,0),(0,192,0),(128,192,0),(0,64,128)]
-#                # 16=potted plant, 17=sheep, 18=sofa, 19=train, 20=tv/monitor
-
 # colour map cityscapes
 label_colours = [(128,64,128)
                 # 0='road'
@@ -31,30 +18,7 @@ label_colours = [(128,64,128)
 # image mean
 IMG_MEAN = np.array((104.00698793,116.66876762,122.67891434), dtype=np.float32)
     
-def decode_labels(mask, n_classes, num_images=1):
-    """Decode batch of segmentation masks.
-    
-    Args:
-      mask: result of inference after taking argmax.
-      num_images: number of images to decode from the batch.
-    
-    Returns:
-      A batch with num_images RGB images of the same size as the input. 
-    """
-    n, h, w, c = mask.shape
-    assert(n >= num_images), 'Batch size %d should be greater or equal than number of images to save %d.' % (n, num_images)
-    outputs = np.zeros((num_images, h, w, 3), dtype=np.uint8)
-    for i in range(num_images):
-      img = Image.new('RGB', (len(mask[i, 0]), len(mask[i])))
-      pixels = img.load()
-      for j_, j in enumerate(mask[i, :, :, 0]):
-          for k_, k in enumerate(j):
-              if k < n_classes:
-                  pixels[k_,j_] = label_colours[k]
-      outputs[i] = np.array(img)
-    return outputs
-
-def decode_labels_old(mask, n_classes):
+def decode_labels(mask, n_classes):
     """Decode batch of segmentation masks.
     
     Args:
@@ -130,11 +94,9 @@ def get_delocalized_loss(images_one_hot,
 	  Outputs a tensor of shape [1]
 	"""
 	images_deloc = tf.nn.max_pool(images_one_hot,[1, kernel_size, kernel_size, 1],[1,stride,stride,1],'SAME')
-#	images_deloc_lin = tf.reshape(images_deloc,[-1,])
 	images_deloc_lin = tf.reshape(images_deloc, [-1, n_classes]) ###
 
 	labels_deloc = tf.nn.max_pool(labels_one_hot,[1, kernel_size, kernel_size, 1],[1,stride,stride,1],'SAME')
-#	labels_deloc_lin = tf.reshape(labels_deloc,[-1,])
 	labels_deloc_lin = tf.reshape(labels_deloc, [-1, n_classes]) ###
  
 	# Mask needs to be downsampled according to size of pred and gt after max_pooling
@@ -150,8 +112,6 @@ def get_delocalized_loss(images_one_hot,
 	mask_combined_lin = tf.reshape(mask_combined,[-1,])
 	indices = tf.squeeze(tf.where(mask_combined_lin),1)# 10x41x41x20
  
-#	mask_lin = tf.reshape(mask_small, [-1,]) # mask_small has been downscaled by pooling
-	
 	images_deloc_lin_sel = tf.gather(images_deloc_lin, indices)
 	labels_deloc_lin_sel = tf.gather(labels_deloc_lin, indices)
 
@@ -171,57 +131,5 @@ def get_delocalized_loss(images_one_hot,
 	else:
 		print('Error: Loss type must be either cross_entropy or square_error' )
 	return loss
- 
-def get_random_mask(h, w, max_h = 0.4, max_w = 0.4):
-	"""Compute a random mask in the same size as the image
-
-	Args:
-	  h: image height
-	  w: image width
-  
-	Returns:
-	  Outputs a mask of shape [h,w]
-	"""     
-	scale_h = tf.random_uniform([],-max_h*0.1,max_h)
- 	scale_w = tf.random_uniform([],-max_w*0.1,max_w) 
-	
-	# TODO: This avoids that Deloc loss gets an empty mask as input --> better use a function like gather that can handle empty masks as well
-	randHeight = tf.cast(tf.maximum(scale_h * h,1),tf.int32)
-	randWidth = tf.cast(tf.maximum(scale_w * w,1),tf.int32)
- 
-#	randHeight = tf.cast(tf.random_uniform([],0,max_h*h),tf.int32)
-#	randWidth = tf.cast(tf.random_uniform([],0,max_w*w),tf.int32)
-	mask_ht = tf.ones([tf.constant(w,tf.int32), randHeight])
-	mask_wl = tf.ones([randWidth,tf.constant(h,tf.int32)])
-	mask_ht = tf.squeeze(tf.image.pad_to_bounding_box(tf.expand_dims(mask_ht, 2), 0, 0, h, w),squeeze_dims=[2])
-	mask_wl = tf.squeeze(tf.image.pad_to_bounding_box(tf.expand_dims(mask_wl, 2), 0, 0, h, w),squeeze_dims=[2])        
-
-	mask_hb = tf.reverse(mask_ht,[False,True])
-	mask_wr = tf.reverse(mask_wl,[True,False])
-
-	a=tf.logical_or(tf.cast(mask_ht,tf.bool),tf.cast(mask_wl,tf.bool))
-	b=tf.logical_or(tf.cast(mask_hb,tf.bool),tf.cast(mask_wr,tf.bool))
-	c=tf.logical_or(a,b)
-	# Use either a, b or c as a mask or   mask_ht, mask_wl, mask_hb, mask_wr   
-	# TODO: Probably the worst implementation of switch case possible :-/ 
-	rand_num = tf.random_uniform([], minval=0, maxval=2.0, dtype=tf.float32, seed=None)
- 	# First try
-	def if_true():
-         return b
-    
-	def if_false():
-         return a
- 
-	mask_sel = tf.cond(tf.less(rand_num , tf.constant(1.0)),if_true,if_false)
- 
- 
-	# Second try 
-#	mask_sel = tf.cond(tf.less(rand_num , 2.0),c,a)
-#	mask_sel = tf.cond(tf.less(rand_num , 3.0),mask_ht,a)
-#	mask_sel = tf.cond(tf.less(rand_num , 4.0),mask_wl,a)
-#	mask_sel = tf.cond(tf.less(rand_num , 5.0),mask_hb,a)
-#	mask_sel = tf.cond(tf.less(rand_num , 6.0),mask_wr,a)
-	mask = tf.expand_dims(tf.cast(mask_sel,tf.float32),2)
-	return mask
  
  

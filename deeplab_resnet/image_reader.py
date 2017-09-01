@@ -3,12 +3,6 @@ import os
 import numpy as np
 import tensorflow as tf
 
-from utils import get_random_mask
-
-# IMG_MEAN = np.array((104.00698793,116.66876762,122.67891434), dtype=np.float32)
-# IMG_MEAN = np.array((104.0,116.0,122.0), dtype=np.float32)
-
-
 def read_labeled_image_list(data_dir, data_list):
     """Reads txt file containing paths to images and ground truth masks.
     
@@ -232,7 +226,6 @@ class ImageReader(object):
         self.labels = tf.convert_to_tensor(self.label_list, dtype=tf.string)
         self.queue = tf.train.slice_input_producer([self.images, self.labels],
                                                    shuffle=input_size is not None) # not shuffling if it is val
-#        self.image, self.label = read_images_from_disk(self.queue, self.img_type, self.phase)
         self.image, self.label = read_images_from_disk(self.queue, 
                                                        self.img_type, 
                                                        self.phase, 
@@ -270,9 +263,9 @@ class ImageReaderEval(object):
         self.queue = tf.train.slice_input_producer([self.images],shuffle=False)
         self.img_contents = tf.read_file(self.queue[0])
         if self.img_type == 1:
-            img = tf.image.decode_jpeg(self.img_contents, channels=3) # VOC12
+            img = tf.image.decode_jpeg(self.img_contents, channels=3) 
         else:
-            img = tf.image.decode_png(self.img_contents, channels=3) # CamVid
+            img = tf.image.decode_png(self.img_contents, channels=3) 
         # Change RGB to BGR
         img_r, img_g, img_b = tf.split(split_dim=2, num_split=3, value=img)
         img = tf.cast(tf.concat(2, [img_b, img_g, img_r]), dtype=tf.float32)    

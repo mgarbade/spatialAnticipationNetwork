@@ -1,48 +1,35 @@
 from __future__ import print_function
 
 import argparse
-from datetime import datetime
 import os
-import sys
 import time
 
 import matplotlib
 matplotlib.use('Agg')
-from matplotlib.image import imread
 import matplotlib.pyplot as plt
 import tensorflow as tf
 import numpy as np
-import scipy.io as sio
-from deeplab_resnet import DeepLabResNetModel, ImageReader, decode_labels, decode_labels_old, inv_preprocess, prepare_label, get_delocalized_loss
-from deeplab_resnet.image_reader import get_random_mask
+from deeplab_resnet import DeepLabResNetModel, ImageReader, decode_labels, prepare_label, get_delocalized_loss
 
 SOLVER_MODE = 1
 
 #### Cityscapes (19 classes + BG)
-#loss_type = 'sigmoid_cross_entropy'
-#loss_type = 'square_error'
-loss_type = 'softmax_cross_entropy'
-USE_DELOC_LOSS = True
-USE_DELOC_ONLY = False
+loss_type = 'sigmoid_cross_entropy'
+#loss_type = 'softmax_cross_entropy'
+kernel_size = 10
+stride = 10
 
-weight_outside = 1.0
+EXP_FOLDER = '/home/garbade/models_tf/05_Cityscapes/CodeRelease/' # Output folder for model, log-files
 
-EXP_ROOT = '/home/garbade/models_tf/05_Cityscapes/'
-
-phase = 'restore_all'
+restoring_mode = 'restore_all'
 DATASET = 'CITY'
 n_classes = 19
 ignore_label = 19
-ignore_labels_above = 18
+ignore_labels_above = 18 # Class indices are 0-based
 DATA_DIRECTORY = '/home/garbade/datasets/cityscapes/'
-
-DATA_LIST_PATH = './dataset/city/train.txt'
-RESTORE_FROM = '/home/garbade/models_tf/05_Cityscapes/14_fixedRandomCropping/snapshots_finetune/model.ckpt-20000'
+DATA_LIST_PATH = './cityscapes/filelist/train.txt'
+RESTORE_FROM = './models/init_labelSasNet_35_1/model.ckpt-20000'
 MASK_FILE = './mask/mask_642x1282.png' # 1 on inside, 0 on outside
-
-# GAN Loss
-dnet_dir = '/home/garbade/CloudStation/libs/dcgan/04_faster_input/checkpoint/DCGAN.model-2002'
-dloss_weight = 1e5
 
 BATCH_SIZE = 10
 INPUT_SIZE = '321,321'
@@ -52,21 +39,16 @@ NUM_STEPS = 20001
 SAVE_NUM_IMAGES = 2
 SAVE_PRED_EVERY = 100
 
-
-
-print('phase: ' + phase)
-
-print('D-Loss-weight:' + str(dloss_weight))
+print('restoring_mode: ' + restoring_mode)
 print('Dataset: ' + DATASET + '\n' + 
           'Restore from: ' + RESTORE_FROM)
 
 ## OPTIMISATION PARAMS ##
 WEIGHT_DECAY = 0.0005
-# BASE_LR = 2.5e-4
 BASE_LR = LEARNING_RATE
 POWER = 0.9
 MOMENTUM = 0.9
-## OPTIMISATION PARAMS ##
+
 
 IMG_MEAN = np.array((104.00698793,116.66876762,122.67891434), dtype=np.float32)
 
@@ -77,9 +59,9 @@ def get_arguments():
       A list of parsed arguments.
     """
     parser = argparse.ArgumentParser(description="DeepLab-ResNet Network")
-    parser.add_argument("--expFolder", type=str, help="Specify expFolder")
-    parser.add_argument("--kernel_size", type=int, help="Specify kernel_size")
-    parser.add_argument("--stride", type=int, help="Specify stride")    
+    parser.add_argument("--expFolder", type=str, default=EXP_FOLDER, help="Specify expFolder")
+    parser.add_argument("--kernel_size", type=int, default=kernel_size, help="Specify kernel_size")
+    parser.add_argument("--stride", type=int, default=stride, help="Specify stride")    
     parser.add_argument("--batch-size", type=int, default=BATCH_SIZE,help="Number of images sent to the network in one step.")
     parser.add_argument("--data-dir", type=str, default=DATA_DIRECTORY,help="Path to the directory containing the PASCAL VOC dataset.")
     parser.add_argument("--data-list", type=str, default=DATA_LIST_PATH,help="Path to the file listing the images in the dataset.")
@@ -93,8 +75,7 @@ def get_arguments():
     parser.add_argument("--save-pred-every", type=int, default=SAVE_PRED_EVERY,help="Save summaries and checkpoint every often.")
     parser.add_argument("--n_classes", type=int, default=n_classes,help="Number of classes.")
     parser.add_argument("--ignore_label", type=int, default=ignore_label,help="Ignore label class number.")   
-    parser.add_argument("--dloss_weight", type=float, default=dloss_weight,help="dloss_weight.")                           
-    parser.add_argument("--phase", type=str, default=phase,help="Phases: restore_all, restore_all_but_last.") 
+    parser.add_argument("--restoring_mode", type=str, default=restoring_mode,help="restoring_modes: restore_all, restore_all_but_last.") 
     parser.add_argument("--mask_file", type=str, default=MASK_FILE,help="MASK_FILE.")                           
     return parser.parse_args()
 
@@ -122,7 +103,7 @@ def main():
     args = get_arguments()
     
     # Output dirs
-    OUTPUT_ROOT = EXP_ROOT + args.expFolder
+    OUTPUT_ROOT = args.expFolder
     SAVE_DIR = OUTPUT_ROOT + '/images_finetune/'
     SNAPSHOT_DIR = OUTPUT_ROOT + '/snapshots_finetune/'
     LOG_DIR = OUTPUT_ROOT + '/logs/' 
@@ -145,8 +126,6 @@ def main():
         print('Mask before cropping')
         mask = tf.image.decode_png(tf.read_file(args.mask_file),channels=1)
         mask = tf.cast(mask, dtype=tf.float32)   
-        
-        #mask_with_weights = tf.concat(2,[mask,lossWeight])
         mask_with_weights = tf.concat(2,[mask,mask])
         
     # Load reader.
@@ -194,17 +173,11 @@ def main():
     
     vars_restore_gist = [v for v in tf.global_variables() if not 'fc' in v.name] # Restore everything but last layer
     
-    ## TODO: Here everything below n_classes is being ignored  -> match this with ingnore_label = 255 -> IGNORE 255 ##
-    raw_prediction = tf.reshape(raw_output, [-1, args.n_classes]) # 10x41x41x20 [B,H,W,C]--> 16810 x 20  
-
     # labels and masks are still concatenated until here
     label_batch, mask_batch, lossWeight_batch = tf.split(split_dim=3,num_split=3,value=label_mask_batch)
     label_batch = tf.cast(label_batch, dtype=tf.uint8)
     label_proc = prepare_label(label_batch, tf.pack(raw_output.get_shape()[1:3]),args.n_classes, one_hot=False) # [batch_size,41,41]
     mask_proc = prepare_label(mask_batch, tf.pack(raw_output.get_shape()[1:3]),args.n_classes, one_hot=False) # [batch_size,41,41]
-
-    raw_gt = tf.reshape(label_proc, [-1,])
-    # TODO: mask_proc is still uint8 here --> check if needs to be converted to float32
 
     # Get masks highlighting everything but the "void" class ("19")
     indices_ic = tf.less_equal(label_proc, ignore_labels_above) # [batch_size,41,41] -->ignore_labels_above should be 18
@@ -261,11 +234,11 @@ def main():
     init = tf.global_variables_initializer()
 
     # Log variables
-    summary_writer = tf.summary.FileWriter(LOG_DIR, sess.graph) # MG
-    tf.summary.scalar("reduced_loss", reduced_loss) # MG
+    summary_writer = tf.summary.FileWriter(LOG_DIR, sess.graph) 
+    tf.summary.scalar("reduced_loss", reduced_loss) 
     for v in conv_trainable + fc_w_trainable + fc_b_trainable: # Add histogram to all variables
         tf.summary.histogram(v.name.replace(":","_"),v)
-    merged_summary_op = tf.summary.merge_all() # MG
+    merged_summary_op = tf.summary.merge_all() 
     
     sess.run(init)
     
@@ -274,10 +247,10 @@ def main():
 
     # Load variables if the checkpoint is provided.
     if args.restore_from is not None:
-        if args.phase ==  'restore_all_but_last':
+        if args.restoring_mode ==  'restore_all_but_last':
             print('Restore everything but last layer')
             loader = tf.train.Saver(var_list=vars_restore_gist)
-        elif args.phase ==  'restore_all':
+        elif args.restoring_mode ==  'restore_all':
             print('Restore all layers')            
             loader = tf.train.Saver(var_list=restore_var)
         load(loader, sess, args.restore_from)
@@ -294,13 +267,11 @@ def main():
         feed_dict = { step_ph : step}
 
         if step % args.save_pred_every == 0:
-            loss_value, images, labels, preds, summary, loss_deloc_value, loss_inside_value, _ = sess.run([reduced_loss, 
+            loss_value, images, labels, preds, summary, _ = sess.run([reduced_loss, 
                                                                       image_batch, 
                                                                       label_batch, 
                                                                       pred, 
                                                                       merged_summary_op,
-                                                                      loss_deloc,
-                                                                      loss_inside,
                                                                       train_op], feed_dict=feed_dict)
             summary_writer.add_summary(summary, step)
             ### Print intermediary images
@@ -310,19 +281,19 @@ def main():
                 axes.flat[i * 3].imshow((images[i] + IMG_MEAN)[:, :, ::-1].astype(np.uint8))
 
                 axes.flat[i * 3 + 1].set_title('mask')
-                axes.flat[i * 3 + 1].imshow(decode_labels_old(labels[i, :, :, 0], args.n_classes))
+                axes.flat[i * 3 + 1].imshow(decode_labels(labels[i, :, :, 0], args.n_classes))
 
                 axes.flat[i * 3 + 2].set_title('pred')
-                axes.flat[i * 3 + 2].imshow(decode_labels_old(preds[i, :, :, 0], args.n_classes))
+                axes.flat[i * 3 + 2].imshow(decode_labels(preds[i, :, :, 0], args.n_classes))
             plt.savefig(SAVE_DIR + str(start_time) + ".png")
             plt.close(fig)
             ###
             if args.save_pred_every is not 2:
                 save(saver, sess, SNAPSHOT_DIR, step)
         else:
-            loss_value, loss_deloc_value, loss_inside_value, _ = sess.run([reduced_loss, loss_deloc, loss_inside, train_op], feed_dict=feed_dict)
+            loss_value, _ = sess.run([reduced_loss, train_op], feed_dict=feed_dict)
         duration = time.time() - start_time
-        print('step {:d} \t loss = {:.3f}, ({:.3f} sec/step) loss_delc = {:.3f}, loss_inside = {:.9f}'.format(step, loss_value, duration, loss_deloc_value, loss_inside_value))            
+        print('step {:d} \t loss = {:.3f}, ({:.3f} sec/step)'.format(step, loss_value, duration))            
     coord.request_stop()
     coord.join(threads)
     

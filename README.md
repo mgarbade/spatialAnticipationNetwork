@@ -6,6 +6,7 @@ Most of the code in this repository was written by modifying a duplicate of DrSl
 ## Requirements
 Training:
 - tensorflow (tested with version 0.12)  
+
 Evaluation:
 - Matlab
 - matconvnet (only 'vl_nnpool' is used for max-pooling)

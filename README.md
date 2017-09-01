@@ -9,5 +9,13 @@ Training:
 
 Evaluation:
 - Matlab
-- matconvnet (only 'vl_nnpool' is used for max-pooling)
+- [MatConvNet](http://www.vlfeat.org/matconvnet/)
+
+## Quick Start
+- Download [models] and place them inside the 'spatialAnticipationNetwork'-root folder.
+- Adapt the paths in `train.py`
+- Train the model using `python train.py`
+- Adapt the paths in `eval.py`
+- Compute the evaluation results using `python eval.py`
+
 

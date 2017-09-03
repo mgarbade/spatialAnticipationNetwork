@@ -2,24 +2,37 @@
 run matlab/vl_setupnn.m
 % Change to result folder
 cd ~/models_tf/05_Cityscapes/CodeRelease/
-resDir = 'val_prob/';
 gtDir = '~/datasets/cityscapes/labels_ic19/';
 kernel = 10;
 stride = 10;
 mode = 'val_prob';
-use_ic = 0;
-use_L1_loss = 0;
+resDir = 'val_prob/';
 
+%%++++++++++++++++++++ Using L1 Loss +++++++++++++++++++++++++++++++++
+%+++ F1 +++
+use_L1_loss = true;
+[acc_all1] = city_evalSeg_F1(resDir,...
+                              gtDir,...
+                              kernel,...
+                              stride,...
+                              mode, ...
+                              'ExpName','CodeRelease', ...
+                              'ignore_void_class',false, ...
+                              'L1',use_L1_loss);
+%+++ IOU +++
+resDir = 'val_ind/';
+[pixel_acc,class_acc,IoU,conf] = city_evalSeg_IoU(resDir,gtDir);
 
-
+%%++++++++++++++++++++ Using L2 Loss +++++++++++++++++++++++++++++++++
+%+++ F1 +++
+use_L1_loss = false;
 [acc_all] = city_evalSeg_F1(resDir,...
                               gtDir,...
                               kernel,...
                               stride,...
                               mode, ...
-                              'ExpName','CodeRelease');
-                          
-%%+++++++++++++++++++++++++++++++++++++++++++++++++++++
-gtDir = '~/datasets/cityscapes/labels/';
+                              'ExpName','CodeRelease', ...
+                              'ignore_void_class',false);
+%+++ IOU +++
 resDir = 'val_ind/';
 [pixel_acc,class_acc,IoU,conf] = city_evalSeg_IoU(resDir,gtDir);

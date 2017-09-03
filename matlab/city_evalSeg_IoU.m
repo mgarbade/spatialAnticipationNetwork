@@ -13,21 +13,21 @@ function [pixel_acc,class_acc,IoU,conf] = city_evalSeg_IoU(resDir,...
 
 opt = struct('MaskMode',3,...  % 1..3  eval on --> fullImg, visibleArea, occludedArea
              'n_classes',19,...
+             'ignore_label',19,... % Everything below this label will be ignored
              'ExpName','ExpName',...
              'MaskFile','/home/garbade/BMVC2017/code/mask/mask_642x1282.png'); 
 opt = processInputArgs(opt, varargin{:});
 gtids = getNamesFromAsciiFile('~/datasets/cityscapes/val_id.txt');
 
 postfix = '';
-
 classes = {'road' 'sidewalk' 'building' 'wall' 'fence' 'pole' 'traffic light' 'traffic sign' ...
     'vegetation' 'terrain' 'sky' 'person' 'rider' 'car' 'truck' 'bus' 'train' 'motorcycle' 'bicycle' 'void'};
-
 mask = imread(opt.MaskFile);
 
 % number of labels = number of classes plus one for the background
 nclasses = opt.n_classes;
 num = opt.n_classes; % actual number of classes -> used to create confusion matrix
+ignore_label = opt.ignore_label;
 confcounts = zeros(num);
 count = 0;
 num_missing_img = 0;
@@ -63,7 +63,7 @@ for i=1:length(gtids)
         error('Results image ''%s'' is the wrong size, was %d x %d, should be %d x %d.',imname,szresim(1),szresim(2),szgtim(1),szgtim(2));
     end
     
-    locs = gtim < 255; 
+    locs = gtim < ignore_label;% Ignore void label
 
     
     %% Different evaluation areas

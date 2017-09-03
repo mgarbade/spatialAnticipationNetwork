@@ -19,5 +19,5 @@ Evaluation:
 
 
 ## Acknowledgement
-Most of the python code in this repository was written by modifying a duplicate of DrSleep's-[deeplab-tensorflow project](https://github.com/DrSleep/tensorflow-deeplab-resnet).
+The tensorflow code in this repository was written by modifying a duplicate of DrSleep's-[deeplab-tensorflow project](https://github.com/DrSleep/tensorflow-deeplab-resnet).
 The Matlab evaluation scripts were written by modifying Liang-Chieh Chen's [deeplab-public-ver2](https://bitbucket.org/aquariusjay/deeplab-public-ver2)

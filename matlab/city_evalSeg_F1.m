@@ -7,43 +7,21 @@ function [acc_all] = city_evalSeg_F1(resDir,...
 
 % Padding according to kernel_size                                                      
 start = tic;
-% disp('city_evalSeg_delocLoss')
 p = floor(krnl/2);                                                          
-% thresholds = [0.3, 0.5, 0.7, 0.9];
 thresholds = [0.5];
 opt = struct('MaskMode',1,...  % 1..3  eval on --> fullImg, ImgWithoutBB, BBonly
              'sz',50, ...      % 1..4  apply on img with mean bar at [l r t b] --> [left right top bottom]
              'n_classes',19,...
-             'ignore_void_class',true,...
              'ExpName','ExpName',...
              'L1',false);      % --> set this to true for experiments trained with L1 loss
-                               % 5 corresponds to no mean bar
+
 opt = processInputArgs(opt, varargin{:});
 gtids = getNamesFromAsciiFile('~/datasets/cityscapes/val_id.txt');
 postfix = '';
 classes = {'road' 'sidewalk' 'building' 'wall' 'fence' 'pole' 'traffic light' 'traffic sign' ...
     'vegetation' 'terrain' 'sky' 'person' 'rider' 'car' 'truck' 'bus' 'train' 'motorcycle' 'bicycle' 'void'};
 
-% disp('Using 100% mask')
 MASK_FILE = '/home/garbade/BMVC2017/code/mask/mask_642x1282.png';
-
-
-% number of labels = number of classes plus one for the background (20 + 1)
-n_classes = opt.n_classes;
-
-% Mask
-mask = imread(MASK_FILE);
-mask_outside = ~mask;
-mask_outside_rep = repmat(mask_outside,1,1,n_classes);
-
-numImgs = length(gtids);
-% numImgs = 1; %%%
-numThresholds = length(thresholds);
-% acc_all = zeros(numImgs,numThresholds);
-
-TP_total = cell(numThresholds,1);
-Pred_total = cell(numThresholds,1);
-Gt_total = cell(numThresholds,1);
 
 % Save qualitative results
 fullExpPath = ['/home/garbade/models_tf/05_Cityscapes/' opt.ExpName];
@@ -54,19 +32,30 @@ mkdir(saveDirPred)
 resImgDirGt = '~/datasets/cityscapes/val_labels_colors/';
 resImgDirPred = [fullExpPath '/' mode(1:end-5) '/'];
 
+% number of labels = number of classes plus one for the background (20 + 1)
+n_classes = opt.n_classes;
+
+% Mask
+mask = imread(MASK_FILE);
+mask_outside = ~mask;
+mask_outside_rep = repmat(mask_outside,1,1,n_classes);
+
+numImgs = length(gtids);
+numThresholds = length(thresholds);
+
+TP_total = cell(numThresholds,1);
+Pred_total = cell(numThresholds,1);
+Gt_total = cell(numThresholds,1);
 
 tic;
-% for i=1:20
-%     warning('DEBUG_MODE: Only 20 images are being used')
-%     
 for i = 1:numImgs    
     
     % display progress
-%     if toc > 60
-%         fprintf('test confusion: %d/%d\n',i,length(gtids));
-%         drawnow;
-%         tic;
-%     end
+    if toc > 60
+        fprintf('test confusion: %d/%d\n',i,length(gtids));
+        drawnow;
+        tic;
+    end
     imname = gtids{i};
     % ground truth label file
     gtfile = [gtDir '/' imname postfix '.png'];
@@ -77,8 +66,8 @@ for i = 1:numImgs
     resim = load(resfile);
     pred_one_hot = resim.data;
     gt_one_hot = zeros([size(pred_one_hot,1),size(pred_one_hot,2),n_classes+1] );
-    for j = 1:n_classes+1 %TODO The +1 dimension is the void label that needs to be calculated out
-        gt_ind = ind2sub(gtim,gtim==j-1);
+    for j = 1:n_classes+1 % The +1 dimension is the void label
+        gt_ind = ind2sub(gtim, gtim == j-1);
         gt_one_hot(:,:,j) = imresize(gt_ind,128/1024,'nearest');
     end
 
@@ -99,11 +88,6 @@ for i = 1:numImgs
     
     % Mask with inside mask
     gt_pooled = gt_pooled_raw & mask_pooled;
-    
-    % Optional masking with ic_map
-    if opt.ignore_void_class
-        gt_pooled = gt_pooled & ic_pooled;
-    end
     
     if opt.L1
         % Use argmax for labels
@@ -131,11 +115,6 @@ for i = 1:numImgs
         
         % Mask prediction
         pred_pooled{j} = pred_pooled_raw & mask_pooled;  
-        
-        % Optional masking with ic_map
-        if opt.ignore_void_class        
-            pred_pooled{j} = pred_pooled{j} & ic_pooled;
-        end
         
         % Get TP
         TP = pred_pooled{j} & gt_pooled;
@@ -172,7 +151,7 @@ for j = 1:numThresholds
 end
 
 
-resString = [ datestr(now, 'yyyy-mm-dd-HH-MM-SS') ',ExpName:, ' opt.ExpName ', ResDir:, ' resDir ', ignore_void_class:' num2str(opt.ignore_void_class) ', krnl=,' num2str(krnl) ...
+resString = [ datestr(now, 'yyyy-mm-dd-HH-MM-SS') ',ExpName:, ' opt.ExpName ', ResDir:, ' resDir ', krnl=,' num2str(krnl) ...
              ' , stride =, ' num2str(stride) ...
              ' , Precision =, ' num2str(mPrecision) ...
              ' , Recall =, ' num2str(mRecall) ...
